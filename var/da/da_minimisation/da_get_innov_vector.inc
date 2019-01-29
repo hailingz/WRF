@@ -2,9 +2,11 @@ subroutine da_get_innov_vector (it, num_qcstat_conv, ob, iv, grid, config_flags)
 
 
    !-----------------------------------------------------------------------
-   ! Purpose: TBD
-   !    Updated for Analysis on Arakawa-C grid
-   !    Author: Syed RH Rizvi,  MMM/ESSL/NCAR,  Date: 10/22/2008
+   ! Purpose: driver routine for getting innovation vectors
+   ! History:$
+   !    10/22/2008 - Updated for Analysis on Arakawa-C grid (Syed RH Rizvi, NCAR)
+   !    03/2017 - Radar neighborhood no-rain scheme (radar_non_precip_opt=2)
+   !              requires all processors to call da_get_innov_vector_radar
    !-----------------------------------------------------------------------
 
    implicit none
@@ -33,7 +35,12 @@ subroutine da_get_innov_vector (it, num_qcstat_conv, ob, iv, grid, config_flags)
 
    if ( write_rej_obs_conv ) then
       call da_get_unit(qcstat_conv_unit)
+#ifdef DM_PARALLEL
       write(unit=filename, fmt='(a,i2.2,a,i4.4)') 'rej_obs_conv_',it,'.', myproc
+#else
+      write(unit=filename, fmt='(a,i2.2,a)') 'rej_obs_conv_',it,'.000'
+#endif
+
       open (unit=qcstat_conv_unit,file=trim(filename),form='formatted',status='replace', &
          iostat=ios)
       if (ios /= 0) then
@@ -144,7 +151,7 @@ subroutine da_get_innov_vector (it, num_qcstat_conv, ob, iv, grid, config_flags)
          call da_get_innov_vector_ssmt2     (it, num_qcstat_conv,grid, ob, iv)
       if (iv%info(satem)%nlocal     > 0) &
          call da_get_innov_vector_satem     (it, num_qcstat_conv,grid, ob, iv)
-      if (iv%info(radar)%nlocal     > 0) &
+      if (iv%info(radar)%nlocal     >= 0 .and. use_radarobs) &
          call da_get_innov_vector_radar     (it, grid, ob, iv)
       if (iv%info(qscat)%nlocal     > 0) &
          call da_get_innov_vector_qscat     (it, num_qcstat_conv,grid, ob, iv)
@@ -197,10 +204,18 @@ subroutine da_get_innov_vector (it, num_qcstat_conv, ob, iv, grid, config_flags)
 
 #if defined(RTTOV) || defined(CRTM)
    if (use_rad) then
-      if ( use_varbc .or. freeze_varbc ) then
-         if ( num_fgat_time > 1 ) call da_varbc_coldstart(iv)
-      end if
-      if ( use_varbc .and. it == 1 ) call da_varbc_precond(iv)
+       if ( use_varbc .or. freeze_varbc ) then
+          if ( num_fgat_time > 1 ) then
+             call da_varbc_coldstart(iv)
+             do n= num_fgat_time , 1, -1
+                iv%time = n
+                iv%instid(:)%info%n1 = iv%instid(:)%info%plocal(iv%time-1) + 1
+                iv%instid(:)%info%n2 = iv%instid(:)%info%plocal(iv%time)
+                call da_varbc_direct(iv)
+             end do
+          end if
+       end if
+       if ( use_varbc .and. it == 1 ) call da_varbc_precond(iv)   !fixed by wuyl
    end if
 #endif
 
@@ -227,6 +242,19 @@ subroutine da_get_innov_vector (it, num_qcstat_conv, ob, iv, grid, config_flags)
       call domain_clock_set (grid, time_step_seconds=time_step_seconds)
       call domain_clockprint(150, grid, 'get CurrTime from clock,')
    end if
+
+#if defined(CRTM) || defined(RTTOV)
+   !----------------------------------------------
+   ! write out or read in radiance iv for multi in binary format
+   !-----------------------------------------------
+   if (use_rad) then
+      if ( multi_inc == 1 ) then
+         call da_write_iv_rad_for_multi_inc(it,ob,iv)
+      elseif ( multi_inc == 2 ) then
+         call da_read_iv_rad_for_multi_inc(it,ob,iv)
+      end if
+   end if
+#endif
 
    if ( multi_inc == 1 ) then
 #ifdef DM_PARALLEL

@@ -71,7 +71,7 @@ module da_setup_structures
    use da_control, only: use_cv_w
    use da_control, only: pseudo_tpw, pseudo_ztd, pseudo_ref, pseudo_uvtpq, pseudo_elv, anal_type_qcobs
    use da_control, only: use_gpsephobs, gpseph_loadbalance, gpseph
-
+   use da_control, only: ccv_be_inp_opt
    use da_obs, only : da_fill_obs_structures, da_store_obs_grid_info, da_store_obs_grid_info_rad, &
                       da_fill_obs_structures_rain, da_fill_obs_structures_radar, da_set_obs_missing,da_set_3d_obs_missing
    use da_obs_io, only : da_read_obs_bufr,da_read_obs_radar, &
